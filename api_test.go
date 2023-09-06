@@ -64,3 +64,19 @@ func TestCustomFunction(t *testing.T) {
 	assert.Nil(err)
 	assert.Equal("bar", result)
 }
+
+func TestInterpreter(t *testing.T) {
+	i := NewInterpreter()
+	var j = []byte(`{"foo": {"bar": {"baz": [0, 1, 2, 3, 4]}}}`)
+	var d interface{}
+	err := json.Unmarshal(j, &d)
+	assert.Nil(t, err)
+
+	p := NewParser()
+	ast, err := p.Parse("foo.bar.baz[2]")
+	assert.Nil(t, err)
+
+	result, err := i.Execute(ast, d)
+	assert.Nil(t, err)
+	assert.Equal(t, 2.0, result)
+}

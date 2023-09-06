@@ -182,7 +182,7 @@ func TestCanSupportSliceOfStructsWithFunctions(t *testing.T) {
 }
 
 func BenchmarkInterpretSingleFieldStruct(b *testing.B) {
-	intr := newInterpreter()
+	intr := NewInterpreter()
 	parser := NewParser()
 	ast, _ := parser.Parse("fooasdfasdfasdfasdf")
 	data := benchmarkStruct{"foobarbazqux"}
@@ -192,7 +192,7 @@ func BenchmarkInterpretSingleFieldStruct(b *testing.B) {
 }
 
 func BenchmarkInterpretNestedStruct(b *testing.B) {
-	intr := newInterpreter()
+	intr := NewInterpreter()
 	parser := NewParser()
 	ast, _ := parser.Parse("fooasdfasdfasdfasdf.fooasdfasdfasdfasdf.fooasdfasdfasdfasdf.fooasdfasdfasdfasdf")
 	data := benchmarkNested{
@@ -212,7 +212,7 @@ func BenchmarkInterpretNestedMaps(b *testing.B) {
 	var data interface{}
 	json.Unmarshal(jsonData, &data)
 
-	intr := newInterpreter()
+	intr := NewInterpreter()
 	parser := NewParser()
 	ast, _ := parser.Parse("fooasdfasdfasdfasdf.fooasdfasdfasdfasdf.fooasdfasdfasdfasdf.fooasdfasdfasdfasdf")
 	for i := 0; i < b.N; i++ {
