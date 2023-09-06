@@ -8,10 +8,6 @@ import (
 	"unicode/utf8"
 )
 
-/* This is a tree based interpreter.  It walks the AST and directly
-   interprets the AST to search through a JSON document.
-*/
-
 // NotFoundError is returned when it is impossible to resolve the AstField
 type NotFoundError struct {
 	key string
@@ -21,11 +17,15 @@ func (n NotFoundError) Error() string {
 	return fmt.Sprintf("Unknown key \"%s\" in path", n.key)
 }
 
+/*
+ * This is a tree based interpreter.  It walks the AST and directly
+ * interprets the AST to search through a JSON document.
+ */
 type treeInterpreter struct {
 	fCall *functionCaller
 }
 
-func newInterpreter() *treeInterpreter {
+func NewInterpreter() *treeInterpreter {
 	interpreter := treeInterpreter{}
 	interpreter.fCall = newFunctionCaller()
 	return &interpreter
@@ -469,4 +469,8 @@ func (intr *treeInterpreter) projectWithReflection(node ASTNode, value interface
 		}
 	}
 	return collected, nil
+}
+
+func (intr *treeInterpreter) Register(f FunctionEntry) {
+	intr.fCall.functionTable[f.Name] = f
 }
