@@ -80,6 +80,9 @@ func (intr *treeInterpreter) Execute(node ASTNode, value interface{}) (interface
 	case ASTExpRef:
 		return expRef{ref: node.Children[0]}, nil
 	case ASTFunctionExpression:
+		if _, ok := node.Value.(string); !ok {
+			return nil, errors.New("invalid node value type")
+		}
 		resolvedArgs := []interface{}{}
 		for _, arg := range node.Children {
 			current, err := intr.Execute(arg, value)
