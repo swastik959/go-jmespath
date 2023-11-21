@@ -118,12 +118,12 @@ func (a *byExprFloat) Less(i, j int) bool {
 	return ith < jth
 }
 
-type functionCaller struct {
+type FunctionCaller struct {
 	functionTable map[string]FunctionEntry
 }
 
-func newFunctionCaller() *functionCaller {
-	caller := &functionCaller{}
+func NewFunctionCaller() *FunctionCaller {
+	caller := &FunctionCaller{}
 	caller.functionTable = map[string]FunctionEntry{
 		"length": {
 			Name: "length",
@@ -323,6 +323,10 @@ func newFunctionCaller() *functionCaller {
 	return caller
 }
 
+func (f *FunctionCaller) Register(e FunctionEntry) {
+	f.functionTable[e.Name] = e
+}
+
 func (e *FunctionEntry) resolveArgs(arguments []interface{}) ([]interface{}, error) {
 	if len(e.Arguments) == 0 {
 		return arguments, nil
@@ -384,7 +388,7 @@ func (a *ArgSpec) typeCheck(arg interface{}) error {
 	return fmt.Errorf("Invalid type for: %v, expected: %#v", arg, a.Types)
 }
 
-func (f *functionCaller) CallFunction(name string, arguments []interface{}, intr *treeInterpreter) (interface{}, error) {
+func (f *FunctionCaller) CallFunction(name string, arguments []interface{}, intr *treeInterpreter) (interface{}, error) {
 	entry, ok := f.functionTable[name]
 	if !ok {
 		return nil, errors.New("unknown function: " + name)

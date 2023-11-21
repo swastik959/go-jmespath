@@ -22,12 +22,19 @@ func (n NotFoundError) Error() string {
  * interprets the AST to search through a JSON document.
  */
 type treeInterpreter struct {
-	fCall *functionCaller
+	fCall *FunctionCaller
 }
 
 func NewInterpreter() *treeInterpreter {
 	interpreter := treeInterpreter{}
-	interpreter.fCall = newFunctionCaller()
+	interpreter.fCall = NewFunctionCaller()
+	return &interpreter
+}
+
+func NewInterpreterFromFunctionCaller(caller *FunctionCaller) *treeInterpreter {
+	interpreter := treeInterpreter{
+		fCall: caller,
+	}
 	return &interpreter
 }
 
