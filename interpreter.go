@@ -39,7 +39,7 @@ type expRef struct {
 	ref ASTNode
 }
 
-// execute takes an ASTNode and input data and interprets the AST directly.
+// Execute takes an ASTNode and input data and interprets the AST directly.
 // It will produce the result of applying the JMESPath expression associated
 // with the ASTNode to the input data "value".
 func (intr *treeInterpreter) Execute(node ASTNode, value interface{}, opts ...InterpreterOption) (interface{}, error) {
