@@ -42,6 +42,7 @@ type ArgSpec struct {
 
 type byExprString struct {
 	intr     *treeInterpreter
+	fCall    *FunctionCaller
 	node     ASTNode
 	items    []interface{}
 	hasError bool
@@ -54,7 +55,7 @@ func (a *byExprString) Swap(i, j int) {
 	a.items[i], a.items[j] = a.items[j], a.items[i]
 }
 func (a *byExprString) Less(i, j int) bool {
-	first, err := a.intr.Execute(a.node, a.items[i])
+	first, err := a.intr.execute(a.node, a.items[i], a.fCall)
 	if err != nil {
 		a.hasError = true
 		// Return a dummy value.
@@ -65,7 +66,7 @@ func (a *byExprString) Less(i, j int) bool {
 		a.hasError = true
 		return true
 	}
-	second, err := a.intr.Execute(a.node, a.items[j])
+	second, err := a.intr.execute(a.node, a.items[j], a.fCall)
 	if err != nil {
 		a.hasError = true
 		// Return a dummy value.
@@ -81,6 +82,7 @@ func (a *byExprString) Less(i, j int) bool {
 
 type byExprFloat struct {
 	intr     *treeInterpreter
+	fCall    *FunctionCaller
 	node     ASTNode
 	items    []interface{}
 	hasError bool
@@ -93,7 +95,7 @@ func (a *byExprFloat) Swap(i, j int) {
 	a.items[i], a.items[j] = a.items[j], a.items[i]
 }
 func (a *byExprFloat) Less(i, j int) bool {
-	first, err := a.intr.Execute(a.node, a.items[i])
+	first, err := a.intr.execute(a.node, a.items[i], a.fCall)
 	if err != nil {
 		a.hasError = true
 		// Return a dummy value.
@@ -104,7 +106,7 @@ func (a *byExprFloat) Less(i, j int) bool {
 		a.hasError = true
 		return true
 	}
-	second, err := a.intr.Execute(a.node, a.items[j])
+	second, err := a.intr.execute(a.node, a.items[j], a.fCall)
 	if err != nil {
 		a.hasError = true
 		// Return a dummy value.
@@ -400,6 +402,7 @@ func (f *FunctionCaller) CallFunction(name string, arguments []interface{}, intr
 	if entry.HasExpRef {
 		var extra []interface{}
 		extra = append(extra, intr)
+		extra = append(extra, f)
 		resolvedArgs = append(extra, resolvedArgs...)
 	}
 	return entry.Handler(resolvedArgs)
@@ -473,12 +476,13 @@ func jpfFloor(arguments []interface{}) (interface{}, error) {
 }
 func jpfMap(arguments []interface{}) (interface{}, error) {
 	intr := arguments[0].(*treeInterpreter)
-	exp := arguments[1].(expRef)
+	fCall := arguments[1].(*FunctionCaller)
+	exp := arguments[2].(expRef)
 	node := exp.ref
-	arr := arguments[2].([]interface{})
+	arr := arguments[3].([]interface{})
 	mapped := make([]interface{}, 0, len(arr))
 	for _, value := range arr {
-		current, err := intr.Execute(node, value)
+		current, err := intr.execute(node, value, fCall)
 		if err != nil {
 			if _, ok := err.(NotFoundError); !ok {
 				return nil, err
@@ -532,15 +536,16 @@ func jpfMerge(arguments []interface{}) (interface{}, error) {
 }
 func jpfMaxBy(arguments []interface{}) (interface{}, error) {
 	intr := arguments[0].(*treeInterpreter)
-	arr := arguments[1].([]interface{})
-	exp := arguments[2].(expRef)
+	fCall := arguments[1].(*FunctionCaller)
+	arr := arguments[2].([]interface{})
+	exp := arguments[3].(expRef)
 	node := exp.ref
 	if len(arr) == 0 {
 		return nil, nil
 	} else if len(arr) == 1 {
 		return arr[0], nil
 	}
-	start, err := intr.Execute(node, arr[0])
+	start, err := intr.execute(node, arr[0], fCall)
 	if err != nil {
 		if _, ok := err.(NotFoundError); !ok {
 			return nil, err
@@ -551,7 +556,7 @@ func jpfMaxBy(arguments []interface{}) (interface{}, error) {
 		bestVal := t
 		bestItem := arr[0]
 		for _, item := range arr[1:] {
-			result, err := intr.Execute(node, item)
+			result, err := intr.execute(node, item, fCall)
 			if err != nil {
 				if _, ok := err.(NotFoundError); !ok {
 					return nil, err
@@ -571,7 +576,7 @@ func jpfMaxBy(arguments []interface{}) (interface{}, error) {
 		bestVal := t
 		bestItem := arr[0]
 		for _, item := range arr[1:] {
-			result, err := intr.Execute(node, item)
+			result, err := intr.execute(node, item, fCall)
 			if err != nil {
 				if _, ok := err.(NotFoundError); !ok {
 					return nil, err
@@ -634,15 +639,16 @@ func jpfMin(arguments []interface{}) (interface{}, error) {
 
 func jpfMinBy(arguments []interface{}) (interface{}, error) {
 	intr := arguments[0].(*treeInterpreter)
-	arr := arguments[1].([]interface{})
-	exp := arguments[2].(expRef)
+	fCall := arguments[1].(*FunctionCaller)
+	arr := arguments[2].([]interface{})
+	exp := arguments[3].(expRef)
 	node := exp.ref
 	if len(arr) == 0 {
 		return nil, nil
 	} else if len(arr) == 1 {
 		return arr[0], nil
 	}
-	start, err := intr.Execute(node, arr[0])
+	start, err := intr.execute(node, arr[0], fCall)
 	if err != nil {
 		if _, ok := err.(NotFoundError); !ok {
 			return nil, err
@@ -652,7 +658,7 @@ func jpfMinBy(arguments []interface{}) (interface{}, error) {
 		bestVal := t
 		bestItem := arr[0]
 		for _, item := range arr[1:] {
-			result, err := intr.Execute(node, item)
+			result, err := intr.execute(node, item, fCall)
 			if err != nil {
 				if _, ok := err.(NotFoundError); !ok {
 					return nil, err
@@ -672,7 +678,7 @@ func jpfMinBy(arguments []interface{}) (interface{}, error) {
 		bestVal := t
 		bestItem := arr[0]
 		for _, item := range arr[1:] {
-			result, err := intr.Execute(node, item)
+			result, err := intr.execute(node, item, fCall)
 			if err != nil {
 				if _, ok := err.(NotFoundError); !ok {
 					return nil, err
@@ -752,29 +758,30 @@ func jpfSort(arguments []interface{}) (interface{}, error) {
 }
 func jpfSortBy(arguments []interface{}) (interface{}, error) {
 	intr := arguments[0].(*treeInterpreter)
-	arr := arguments[1].([]interface{})
-	exp := arguments[2].(expRef)
+	fCall := arguments[1].(*FunctionCaller)
+	arr := arguments[2].([]interface{})
+	exp := arguments[3].(expRef)
 	node := exp.ref
 	if len(arr) == 0 {
 		return arr, nil
 	} else if len(arr) == 1 {
 		return arr, nil
 	}
-	start, err := intr.Execute(node, arr[0])
+	start, err := intr.execute(node, arr[0], fCall)
 	if err != nil {
 		if _, ok := err.(NotFoundError); !ok {
 			return nil, err
 		}
 	}
 	if _, ok := start.(float64); ok {
-		sortable := &byExprFloat{intr, node, arr, false}
+		sortable := &byExprFloat{intr, fCall, node, arr, false}
 		sort.Stable(sortable)
 		if sortable.hasError {
 			return nil, errors.New("error in sort_by comparison")
 		}
 		return arr, nil
 	} else if _, ok := start.(string); ok {
-		sortable := &byExprString{intr, node, arr, false}
+		sortable := &byExprString{intr, fCall, node, arr, false}
 		sort.Stable(sortable)
 		if sortable.hasError {
 			return nil, errors.New("error in sort_by comparison")
