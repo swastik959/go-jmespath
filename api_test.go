@@ -48,8 +48,10 @@ func TestCustomFunction(t *testing.T) {
 	assert := assert.New(t)
 	data := make(map[string]interface{})
 	data["foo"] = "BAR"
+
 	precompiled, err := Compile("to_lower(foo)")
-	precompiled.Register(FunctionEntry{
+	fCall := NewFunctionCaller()
+	fCall.Register(FunctionEntry{
 		Name: "to_lower",
 		Arguments: []ArgSpec{
 			{Types: []JpType{JpString}},
@@ -60,7 +62,7 @@ func TestCustomFunction(t *testing.T) {
 		},
 	})
 	assert.Nil(err)
-	result, err := precompiled.Search(data)
+	result, err := precompiled.Search(data, WithFunctionCaller(fCall))
 	assert.Nil(err)
 	assert.Equal("bar", result)
 }
