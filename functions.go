@@ -42,7 +42,6 @@ type ArgSpec struct {
 
 type byExprString struct {
 	intr     *treeInterpreter
-	fCall    *FunctionCaller
 	node     ASTNode
 	items    []interface{}
 	hasError bool
@@ -55,7 +54,7 @@ func (a *byExprString) Swap(i, j int) {
 	a.items[i], a.items[j] = a.items[j], a.items[i]
 }
 func (a *byExprString) Less(i, j int) bool {
-	first, err := a.intr.execute(a.node, a.items[i], a.fCall)
+	first, err := a.intr.Execute(a.node, a.items[i])
 	if err != nil {
 		a.hasError = true
 		// Return a dummy value.
@@ -66,7 +65,7 @@ func (a *byExprString) Less(i, j int) bool {
 		a.hasError = true
 		return true
 	}
-	second, err := a.intr.execute(a.node, a.items[j], a.fCall)
+	second, err := a.intr.Execute(a.node, a.items[j])
 	if err != nil {
 		a.hasError = true
 		// Return a dummy value.
@@ -82,7 +81,6 @@ func (a *byExprString) Less(i, j int) bool {
 
 type byExprFloat struct {
 	intr     *treeInterpreter
-	fCall    *FunctionCaller
 	node     ASTNode
 	items    []interface{}
 	hasError bool
@@ -95,7 +93,7 @@ func (a *byExprFloat) Swap(i, j int) {
 	a.items[i], a.items[j] = a.items[j], a.items[i]
 }
 func (a *byExprFloat) Less(i, j int) bool {
-	first, err := a.intr.execute(a.node, a.items[i], a.fCall)
+	first, err := a.intr.Execute(a.node, a.items[i])
 	if err != nil {
 		a.hasError = true
 		// Return a dummy value.
@@ -106,7 +104,7 @@ func (a *byExprFloat) Less(i, j int) bool {
 		a.hasError = true
 		return true
 	}
-	second, err := a.intr.execute(a.node, a.items[j], a.fCall)
+	second, err := a.intr.Execute(a.node, a.items[j])
 	if err != nil {
 		a.hasError = true
 		// Return a dummy value.
@@ -120,12 +118,12 @@ func (a *byExprFloat) Less(i, j int) bool {
 	return ith < jth
 }
 
-type FunctionCaller struct {
+type functionCaller struct {
 	functionTable map[string]FunctionEntry
 }
 
-func NewFunctionCaller() *FunctionCaller {
-	caller := &FunctionCaller{}
+func newFunctionCaller() *functionCaller {
+	caller := &functionCaller{}
 	caller.functionTable = map[string]FunctionEntry{
 		"length": {
 			Name: "length",
@@ -269,6 +267,11 @@ func NewFunctionCaller() *FunctionCaller {
 			},
 			Handler: jpfSort,
 		},
+		"unique": {
+			Name:      "unique",
+			Arguments: []ArgSpec{{Types: []JpType{JpArrayString, JpArrayNumber}}},
+			Handler:   removeDuplicatesHandler,
+		},
 		"sort_by": {
 			Name: "sort_by",
 			Arguments: []ArgSpec{
@@ -276,6 +279,12 @@ func NewFunctionCaller() *FunctionCaller {
 				{Types: []JpType{JpExpref}},
 			},
 			Handler:   jpfSortBy,
+			HasExpRef: true,
+		},
+		"unique_by": {
+			Name:      "unique_by",
+			Arguments: []ArgSpec{{Types: []JpType{JpArray}}, {Types: []JpType{JpExpref}}},
+			Handler:   removeDuplicatesByExpressionWrapper,
 			HasExpRef: true,
 		},
 		"join": {
@@ -323,10 +332,6 @@ func NewFunctionCaller() *FunctionCaller {
 		},
 	}
 	return caller
-}
-
-func (f *FunctionCaller) Register(e FunctionEntry) {
-	f.functionTable[e.Name] = e
 }
 
 func (e *FunctionEntry) resolveArgs(arguments []interface{}) ([]interface{}, error) {
@@ -390,7 +395,7 @@ func (a *ArgSpec) typeCheck(arg interface{}) error {
 	return fmt.Errorf("Invalid type for: %v, expected: %#v", arg, a.Types)
 }
 
-func (f *FunctionCaller) CallFunction(name string, arguments []interface{}, intr *treeInterpreter) (interface{}, error) {
+func (f *functionCaller) CallFunction(name string, arguments []interface{}, intr *treeInterpreter) (interface{}, error) {
 	entry, ok := f.functionTable[name]
 	if !ok {
 		return nil, errors.New("unknown function: " + name)
@@ -402,7 +407,6 @@ func (f *FunctionCaller) CallFunction(name string, arguments []interface{}, intr
 	if entry.HasExpRef {
 		var extra []interface{}
 		extra = append(extra, intr)
-		extra = append(extra, f)
 		resolvedArgs = append(extra, resolvedArgs...)
 	}
 	return entry.Handler(resolvedArgs)
@@ -476,13 +480,12 @@ func jpfFloor(arguments []interface{}) (interface{}, error) {
 }
 func jpfMap(arguments []interface{}) (interface{}, error) {
 	intr := arguments[0].(*treeInterpreter)
-	fCall := arguments[1].(*FunctionCaller)
-	exp := arguments[2].(expRef)
+	exp := arguments[1].(expRef)
 	node := exp.ref
-	arr := arguments[3].([]interface{})
+	arr := arguments[2].([]interface{})
 	mapped := make([]interface{}, 0, len(arr))
 	for _, value := range arr {
-		current, err := intr.execute(node, value, fCall)
+		current, err := intr.Execute(node, value)
 		if err != nil {
 			if _, ok := err.(NotFoundError); !ok {
 				return nil, err
@@ -536,16 +539,15 @@ func jpfMerge(arguments []interface{}) (interface{}, error) {
 }
 func jpfMaxBy(arguments []interface{}) (interface{}, error) {
 	intr := arguments[0].(*treeInterpreter)
-	fCall := arguments[1].(*FunctionCaller)
-	arr := arguments[2].([]interface{})
-	exp := arguments[3].(expRef)
+	arr := arguments[1].([]interface{})
+	exp := arguments[2].(expRef)
 	node := exp.ref
 	if len(arr) == 0 {
 		return nil, nil
 	} else if len(arr) == 1 {
 		return arr[0], nil
 	}
-	start, err := intr.execute(node, arr[0], fCall)
+	start, err := intr.Execute(node, arr[0])
 	if err != nil {
 		if _, ok := err.(NotFoundError); !ok {
 			return nil, err
@@ -556,7 +558,7 @@ func jpfMaxBy(arguments []interface{}) (interface{}, error) {
 		bestVal := t
 		bestItem := arr[0]
 		for _, item := range arr[1:] {
-			result, err := intr.execute(node, item, fCall)
+			result, err := intr.Execute(node, item)
 			if err != nil {
 				if _, ok := err.(NotFoundError); !ok {
 					return nil, err
@@ -576,7 +578,7 @@ func jpfMaxBy(arguments []interface{}) (interface{}, error) {
 		bestVal := t
 		bestItem := arr[0]
 		for _, item := range arr[1:] {
-			result, err := intr.execute(node, item, fCall)
+			result, err := intr.Execute(node, item)
 			if err != nil {
 				if _, ok := err.(NotFoundError); !ok {
 					return nil, err
@@ -639,16 +641,15 @@ func jpfMin(arguments []interface{}) (interface{}, error) {
 
 func jpfMinBy(arguments []interface{}) (interface{}, error) {
 	intr := arguments[0].(*treeInterpreter)
-	fCall := arguments[1].(*FunctionCaller)
-	arr := arguments[2].([]interface{})
-	exp := arguments[3].(expRef)
+	arr := arguments[1].([]interface{})
+	exp := arguments[2].(expRef)
 	node := exp.ref
 	if len(arr) == 0 {
 		return nil, nil
 	} else if len(arr) == 1 {
 		return arr[0], nil
 	}
-	start, err := intr.execute(node, arr[0], fCall)
+	start, err := intr.Execute(node, arr[0])
 	if err != nil {
 		if _, ok := err.(NotFoundError); !ok {
 			return nil, err
@@ -658,7 +659,7 @@ func jpfMinBy(arguments []interface{}) (interface{}, error) {
 		bestVal := t
 		bestItem := arr[0]
 		for _, item := range arr[1:] {
-			result, err := intr.execute(node, item, fCall)
+			result, err := intr.Execute(node, item)
 			if err != nil {
 				if _, ok := err.(NotFoundError); !ok {
 					return nil, err
@@ -678,7 +679,7 @@ func jpfMinBy(arguments []interface{}) (interface{}, error) {
 		bestVal := t
 		bestItem := arr[0]
 		for _, item := range arr[1:] {
-			result, err := intr.execute(node, item, fCall)
+			result, err := intr.Execute(node, item)
 			if err != nil {
 				if _, ok := err.(NotFoundError); !ok {
 					return nil, err
@@ -756,32 +757,61 @@ func jpfSort(arguments []interface{}) (interface{}, error) {
 	}
 	return final, nil
 }
+
+func removeDuplicates(sortedSlice []interface{}) []interface{} {
+	if len(sortedSlice) == 0 {
+		return sortedSlice
+	}
+
+	uniqueSlice := make([]interface{}, 0, len(sortedSlice))
+	uniqueSlice = append(uniqueSlice, sortedSlice[0])
+
+	for i := 1; i < len(sortedSlice); i++ {
+		// Check if the current element is different from the previous one
+		if sortedSlice[i] != sortedSlice[i-1] {
+			uniqueSlice = append(uniqueSlice, sortedSlice[i])
+		}
+	}
+
+	return uniqueSlice
+}
+func removeDuplicatesHandler(arguments []interface{}) (interface{}, error) {
+	if len(arguments) != 1 {
+		return nil, errors.New("removeDuplicatesHandler requires one argument")
+	}
+
+	if sortedSlice, ok := arguments[0].([]interface{}); ok {
+		return removeDuplicates(sortedSlice), nil
+	}
+
+	return nil, errors.New("removeDuplicatesHandler requires a slice of interfaces as the argument")
+}
+
 func jpfSortBy(arguments []interface{}) (interface{}, error) {
 	intr := arguments[0].(*treeInterpreter)
-	fCall := arguments[1].(*FunctionCaller)
-	arr := arguments[2].([]interface{})
-	exp := arguments[3].(expRef)
+	arr := arguments[1].([]interface{})
+	exp := arguments[2].(expRef)
 	node := exp.ref
 	if len(arr) == 0 {
 		return arr, nil
 	} else if len(arr) == 1 {
 		return arr, nil
 	}
-	start, err := intr.execute(node, arr[0], fCall)
+	start, err := intr.Execute(node, arr[0])
 	if err != nil {
 		if _, ok := err.(NotFoundError); !ok {
 			return nil, err
 		}
 	}
 	if _, ok := start.(float64); ok {
-		sortable := &byExprFloat{intr, fCall, node, arr, false}
+		sortable := &byExprFloat{intr, node, arr, false}
 		sort.Stable(sortable)
 		if sortable.hasError {
 			return nil, errors.New("error in sort_by comparison")
 		}
 		return arr, nil
 	} else if _, ok := start.(string); ok {
-		sortable := &byExprString{intr, fCall, node, arr, false}
+		sortable := &byExprString{intr, node, arr, false}
 		sort.Stable(sortable)
 		if sortable.hasError {
 			return nil, errors.New("error in sort_by comparison")
@@ -791,6 +821,54 @@ func jpfSortBy(arguments []interface{}) (interface{}, error) {
 		return nil, errors.New("invalid type, must be number of string")
 	}
 }
+
+func removeDuplicatesByExpression(sortedSlice []interface{}, intr *treeInterpreter, exp expRef) ([]interface{}, error) {
+	if len(sortedSlice) == 0 || len(sortedSlice) == 1 {
+		return sortedSlice, nil
+	}
+
+	// Create a map to store unique entries based on the expression result
+	uniqueMap := make(map[interface{}]struct{})
+	uniqueSlice := make([]interface{}, 0, len(sortedSlice))
+
+	for _, item := range sortedSlice {
+		result, err := intr.Execute(exp.ref, item)
+		if err != nil {
+			if _, ok := err.(NotFoundError); !ok {
+				return nil, err
+			}
+		}
+		if _, ok := uniqueMap[result]; !ok {
+			uniqueMap[result] = struct{}{}
+			uniqueSlice = append(uniqueSlice, item)
+		}
+	}
+
+	return uniqueSlice, nil
+}
+func removeDuplicatesByExpressionWrapper(arguments []interface{}) (interface{}, error) {
+	if len(arguments) != 3 {
+		return nil, fmt.Errorf("removeDuplicatesByExpressionWrapper: expected 3 arguments, got %d", len(arguments))
+	}
+
+	sortedSlice, ok := arguments[0].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("removeDuplicatesByExpressionWrapper: first argument must be a slice of interfaces")
+	}
+
+	intr, ok := arguments[1].(*treeInterpreter)
+	if !ok {
+		return nil, fmt.Errorf("removeDuplicatesByExpressionWrapper: second argument must be a treeInterpreter")
+	}
+
+	exp, ok := arguments[2].(expRef)
+	if !ok {
+		return nil, fmt.Errorf("removeDuplicatesByExpressionWrapper: third argument must be an expRef")
+	}
+
+	return removeDuplicatesByExpression(sortedSlice, intr, exp)
+}
+
 func jpfJoin(arguments []interface{}) (interface{}, error) {
 	sep := arguments[0].(string)
 	// We can't just do arguments[1].([]string), we have to
