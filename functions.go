@@ -269,6 +269,11 @@ func NewFunctionCaller() *FunctionCaller {
 			},
 			Handler: jpfSort,
 		},
+		"unique": {
+			Name:      "unique",
+			Arguments: []ArgSpec{{Types: []JpType{JpArrayString, JpArrayNumber}}},
+			Handler:   removeDuplicatesHandler,
+		},
 		"sort_by": {
 			Name: "sort_by",
 			Arguments: []ArgSpec{
@@ -276,6 +281,15 @@ func NewFunctionCaller() *FunctionCaller {
 				{Types: []JpType{JpExpref}},
 			},
 			Handler:   jpfSortBy,
+			HasExpRef: true,
+		},
+		"unique_by": {
+			Name: "unique_by",
+			Arguments: []ArgSpec{
+				{Types: []JpType{JpArray}},
+				{Types: []JpType{JpExpref}},
+			},
+			Handler:   removeDuplicatesByExpressionWrapper,
 			HasExpRef: true,
 		},
 		"join": {
@@ -756,6 +770,34 @@ func jpfSort(arguments []interface{}) (interface{}, error) {
 	}
 	return final, nil
 }
+func removeDuplicates(sortedSlice []interface{}) []interface{} {
+	if len(sortedSlice) == 0 {
+		return sortedSlice
+	}
+
+	uniqueSlice := make([]interface{}, 0, len(sortedSlice))
+	uniqueSlice = append(uniqueSlice, sortedSlice[0])
+
+	for i := 1; i < len(sortedSlice); i++ {
+		// Check if the current element is different from the previous one
+		if sortedSlice[i] != sortedSlice[i-1] {
+			uniqueSlice = append(uniqueSlice, sortedSlice[i])
+		}
+	}
+
+	return uniqueSlice
+}
+func removeDuplicatesHandler(arguments []interface{}) (interface{}, error) {
+	if len(arguments) != 1 {
+		return nil, errors.New("removeDuplicatesHandler requires one argument")
+	}
+
+	if sortedSlice, ok := arguments[0].([]interface{}); ok {
+		return removeDuplicates(sortedSlice), nil
+	}
+
+	return nil, errors.New("removeDuplicatesHandler requires a slice of interfaces as the argument")
+}
 func jpfSortBy(arguments []interface{}) (interface{}, error) {
 	intr := arguments[0].(*treeInterpreter)
 	fCall := arguments[1].(*FunctionCaller)
@@ -790,6 +832,57 @@ func jpfSortBy(arguments []interface{}) (interface{}, error) {
 	} else {
 		return nil, errors.New("invalid type, must be number of string")
 	}
+}
+func removeDuplicatesByExpression(sortedSlice []interface{}, intr *treeInterpreter, exp expRef, fCall *FunctionCaller) ([]interface{}, error) {
+	if len(sortedSlice) == 0 || len(sortedSlice) == 1 {
+		return sortedSlice, nil
+	}
+
+	// Create a map to store unique entries based on the expression result
+	uniqueMap := make(map[interface{}]struct{})
+	uniqueSlice := make([]interface{}, 0, len(sortedSlice))
+
+	for _, item := range sortedSlice {
+		result, err := intr.execute(exp.ref, item, fCall)
+		if err != nil {
+			if _, ok := err.(NotFoundError); !ok {
+				return nil, err
+			}
+		}
+		if _, ok := uniqueMap[result]; !ok {
+			uniqueMap[result] = struct{}{}
+			uniqueSlice = append(uniqueSlice, item)
+		}
+	}
+
+	return uniqueSlice, nil
+}
+func removeDuplicatesByExpressionWrapper(arguments []interface{}) (interface{}, error) {
+
+	if len(arguments) != 3 {
+		return nil, fmt.Errorf("removeDuplicatesByExpressionWrapper: expected 3 arguments, got %d", len(arguments))
+	}
+
+	intr, ok := arguments[0].(*treeInterpreter)
+	if !ok {
+		return nil, fmt.Errorf("removeDuplicatesByExpressionWrapper: first argument must be a slice of interfaces")
+	}
+
+	fcall, ok := arguments[1].(*FunctionCaller)
+	if !ok {
+		return nil, fmt.Errorf("removeDuplicatesByExpressionWrapper: second argument must be a treeInterpreter")
+	}
+
+	sortedSlice, ok := arguments[2].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("removeDuplicatesByExpressionWrapper: third argument must be an expRef")
+	}
+	exp, ok := arguments[2].(expRef)
+	if !ok {
+		return nil, fmt.Errorf("removeDuplicatesByExpressionWrapper: third argument must be an expRef")
+	}
+
+	return removeDuplicatesByExpression(sortedSlice, intr, exp, fcall)
 }
 func jpfJoin(arguments []interface{}) (interface{}, error) {
 	sep := arguments[0].(string)
